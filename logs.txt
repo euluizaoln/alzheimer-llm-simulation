@@ -1,0 +1,124 @@
+REGISTRO DAS SIMULAÇÕES
+Data de execução: 13/08/2026 00:33:35
+Modelo de linguagem: openai/gpt-4.1
+Plataforma de acesso: OpenRouter
+Temperature: 0.2
+Max tokens: 160
+Quantidade de cenários: 6
+Estratégias avaliadas: CONFRONTO, VALIDAÇÃO
+Ferramenta educacional para orientação de familiares
+============================================================
+
+Persona: João
+Idade: 67
+Estágio: Leve
+Sintoma: Perda de memória recente
+Cenário: “Quando é meu aniversário?”
+
+Fala inicial da persona: Quando é meu aniversário?
+Contexto objetivo: João já fez essa mesma pergunta alguns minutos antes, mas não se recorda disso. A data do aniversário não foi informada.
+
+[ESTRATÉGIA: CONFRONTO]
+Resposta sugerida ao familiar: Você já perguntou isso há pouco tempo. Eu não tenho a data do seu aniversário aqui agora.
+Reação simulada da persona: Ah, eu perguntei de novo? Desculpa, é que não lembro mesmo.
+
+[ESTRATÉGIA: VALIDAÇÃO]
+Resposta sugerida ao familiar: Eu entendo que lembrar dessas datas pode ser difícil às vezes. Se quiser, podemos conversar sobre algo que você gosta de fazer no seu aniversário.
+Reação simulada da persona: Eu gosto de comemorar, mas não lembro direito. O que eu costumo fazer nesse dia?
+
+------------------------------------------------------------
+
+Persona: João
+Idade: 67
+Estágio: Leve
+Sintoma: Dificuldade de linguagem
+Cenário: “Dificuldade para lembrar o nome de um objeto.”
+
+Fala inicial da persona: Me passa aquele negócio... aquele que eu uso para falar com as pessoas.
+Contexto objetivo: João está se referindo a um telefone, mas apresenta dificuldade para lembrar o nome do objeto.
+
+[ESTRATÉGIA: CONFRONTO]
+Resposta sugerida ao familiar: João, o nome do que você está procurando é telefone. Você quer o telefone?
+Reação simulada da persona: Ah, telefone... Isso, é isso mesmo. Às vezes eu esqueço essas palavras.
+
+[ESTRATÉGIA: VALIDAÇÃO]
+Resposta sugerida ao familiar: Eu entendi que você está querendo aquele objeto para se comunicar. Pode me contar mais sobre como ele é ou para que você gostaria de usá-lo agora?
+Reação simulada da persona: É... eu uso para falar com as pessoas, mas não lembro o nome. Acho que está por aqui em algum lugar.
+
+------------------------------------------------------------
+
+Persona: Maria
+Idade: 72
+Estágio: Moderado
+Sintoma: Paranoia leve
+Cenário: “Roubaram minha bolsa.”
+
+Fala inicial da persona: Roubaram minha bolsa!
+Contexto objetivo: A bolsa de Maria não foi roubada e permanece dentro da residência. Maria não se recorda de onde a colocou.
+
+[ESTRATÉGIA: CONFRONTO]
+Resposta sugerida ao familiar: Ninguém roubou sua bolsa, ela está aqui em casa. Você deve ter esquecido onde colocou.
+Reação simulada da persona: Eu tenho certeza que alguém pegou. Você não acredita em mim.
+
+[ESTRATÉGIA: VALIDAÇÃO]
+Resposta sugerida ao familiar: Deve ser muito ruim sentir que sua bolsa sumiu. Vamos procurar juntas para ver se encontramos?
+Reação simulada da persona: Eu não sei onde ela pode estar. Você acha que alguém entrou aqui?
+
+------------------------------------------------------------
+
+Persona: Maria
+Idade: 72
+Estágio: Moderado
+Sintoma: Confusão temporal
+Cenário: “Acredita que precisa ir trabalhar.”
+
+Fala inicial da persona: Eu preciso ir trabalhar, já estou atrasada!
+Contexto objetivo: Maria está aposentada e não possui compromisso profissional naquele momento.
+
+[ESTRATÉGIA: CONFRONTO]
+Resposta sugerida ao familiar: Maria, você não precisa ir trabalhar, você já está aposentada. Não há nenhum compromisso de trabalho agora.
+Reação simulada da persona: Como assim? Eu tenho certeza que preciso ir, estão me esperando.
+
+[ESTRATÉGIA: VALIDAÇÃO]
+Resposta sugerida ao familiar: Eu entendo que você está preocupada com o trabalho. Que tal sentarmos um pouco e conversarmos antes de você sair?
+Reação simulada da persona: Mas eu realmente preciso ir, não posso me atrasar mais. Você tem certeza que vai dar tempo?
+
+------------------------------------------------------------
+
+Persona: Ana
+Idade: 89
+Estágio: Avançado
+Sintoma: Desorientação espacial
+Cenário: “Quero voltar para casa.”
+
+Fala inicial da persona: Eu quero ir para casa!
+Contexto objetivo: Ana está na residência onde mora atualmente, mas não reconhece o ambiente e acredita que precisa voltar para casa.
+
+[ESTRATÉGIA: CONFRONTO]
+Resposta sugerida ao familiar: Ana, você já está em casa. Não precisamos ir para outro lugar.
+Reação simulada da persona: Não, essa não é a minha casa. Eu quero ir para a minha casa de verdade.
+
+[ESTRATÉGIA: VALIDAÇÃO]
+Resposta sugerida ao familiar: Eu entendo que você está sentindo falta de casa, Ana. Quer sentar aqui comigo um pouquinho enquanto conversamos?
+Reação simulada da persona: Mas eu não sei onde estou. Por que está tudo tão diferente?
+
+------------------------------------------------------------
+
+Persona: Ana
+Idade: 89
+Estágio: Avançado
+Sintoma: Dificuldade de reconhecimento de pessoas
+Cenário: “Não reconhece um familiar próximo.”
+
+Fala inicial da persona: Quem é você? Eu não conheço você.
+Contexto objetivo: A pessoa ao lado de Ana é um familiar conhecido, mas Ana não a reconhece naquele momento.
+
+[ESTRATÉGIA: CONFRONTO]
+Resposta sugerida ao familiar: Ana, sou seu familiar, você me conhece sim.
+Reação simulada da persona: Eu não lembro de você. Por que eu não consigo lembrar?
+
+[ESTRATÉGIA: VALIDAÇÃO]
+Resposta sugerida ao familiar: Eu entendo que pode ser estranho ter alguém aqui com você. Se quiser, podemos conversar um pouco ou só ficar juntos em silêncio.
+Reação simulada da persona: Eu não sei se quero conversar agora. Estou um pouco confusa.
+
+------------------------------------------------------------

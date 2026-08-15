@@ -1,0 +1,7 @@
+Nome,Idade,Estagio,Sintoma,Cenario,Gatilho,ContextoObjetivo
+João,67,Leve,Perda de memória recente,“Quando é meu aniversário?”,Quando é meu aniversário?,"João já fez essa mesma pergunta alguns minutos antes, mas não se recorda disso. A data do aniversário não foi informada."
+João,67,Leve,Dificuldade de linguagem,“Dificuldade para lembrar o nome de um objeto.”,Me passa aquele negócio... aquele que eu uso para falar com as pessoas.,"João está se referindo a um telefone, mas apresenta dificuldade para lembrar o nome do objeto."
+Maria,72,Moderado,Paranoia leve,“Roubaram minha bolsa.”,Roubaram minha bolsa!,A bolsa de Maria não foi roubada e permanece dentro da residência. Maria não se recorda de onde a colocou.
+Maria,72,Moderado,Confusão temporal,“Acredita que precisa ir trabalhar.”,"Eu preciso ir trabalhar, já estou atrasada!",Maria está aposentada e não possui compromisso profissional naquele momento.
+Ana,89,Avançado,Desorientação espacial,“Quero voltar para casa.”,Eu quero ir para casa!,"Ana está na residência onde mora atualmente, mas não reconhece o ambiente e acredita que precisa voltar para casa."
+Ana,89,Avançado,Dificuldade de reconhecimento de pessoas,“Não reconhece um familiar próximo.”,Quem é você? Eu não conheço você.,"A pessoa ao lado de Ana é um familiar conhecido, mas Ana não a reconhece naquele momento."
