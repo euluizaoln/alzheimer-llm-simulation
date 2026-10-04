@@ -1,131 +1,93 @@
+"""Controlador principal das simulações."""
+
 import csv
-import os
+import uuid
 from datetime import datetime
+from pathlib import Path
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-
-# =========================
-# CONFIGURAÇÕES
-# =========================
-
-load_dotenv()
-
-API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-if not API_KEY:
-    raise RuntimeError(
-        "A chave OPENROUTER_API_KEY não foi encontrada no arquivo .env."
-    )
-
-MODEL_ID = "openai/gpt-4.1"
-
-TEMPERATURE = 0.2
-MAX_TOKENS = 160
-
-ARQUIVO_PERSONAS = "personas.csv"
-ARQUIVO_LOG = "logs.txt"
-ARQUIVO_FIGURA = "logs_figura.txt"
-
-ESTRATEGIAS = [
-    "CONFRONTO",
-    "VALIDAÇÃO"
-]
-
-# True: executa somente os cenários da persona Maria.
-# False: executa todos os cenários cadastrados no personas.csv.
-MODO_PILOTO = False
-
-client = OpenAI(
-    api_key=API_KEY,
-    base_url="https://openrouter.ai/api/v1"
+from llm import MODEL_ID, TEMPERATURE, MAX_TOKENS, chamar_llm
+from prompts import (
+    montar_prompt_estado,
+    montar_prompt_familiar,
+    montar_prompt_persona,
 )
 
+BASE_DIR = Path(__file__).resolve().parent
 
-# =========================
-# LEITURA DAS PERSONAS
-# =========================
+ARQUIVO_PERSONAS = BASE_DIR / "personas.csv"
+ARQUIVO_LOG = BASE_DIR / "logs.txt"
+
+MAX_RODADAS = 5
+REQUISICOES_POR_RODADA = 3
+
+CAMPOS_OBRIGATORIOS = [
+    "Nome",
+    "Idade",
+    "Profissao",
+    "EstadoCivil",
+    "Filhos",
+    "Familiar",
+    "CaracteristicasPessoais",
+    "Estagio",
+    "Sintoma",
+    "Cenario",
+    "Situacao",
+    "ContextoObjetivo",
+]
+
+
+# ============================================================
+# DADOS
+# ============================================================
 
 def carregar_personas(caminho):
-    campos_obrigatorios = [
-        "Nome",
-        "Idade",
-        "Estagio",
-        "Sintoma",
-        "Cenario",
-        "Gatilho",
-        "ContextoObjetivo"
-    ]
-
+    """Carrega e valida os registros do arquivo personas.csv."""
     with open(
         caminho,
         "r",
         encoding="utf-8-sig",
-        newline=""
+        newline="",
     ) as arquivo:
-
-        amostra = arquivo.read(2048)
-        arquivo.seek(0)
-
-        try:
-            dialecto = csv.Sniffer().sniff(
-                amostra,
-                delimiters=",;"
-            )
-        except csv.Error:
-            dialecto = csv.excel
-
-        leitor = csv.DictReader(
-            arquivo,
-            dialect=dialecto
-        )
+        leitor = csv.DictReader(arquivo)
 
         if not leitor.fieldnames:
             raise RuntimeError(
                 "O arquivo personas.csv não possui cabeçalho."
             )
 
-        campos_faltantes = [
+        faltantes = [
             campo
-            for campo in campos_obrigatorios
+            for campo in CAMPOS_OBRIGATORIOS
             if campo not in leitor.fieldnames
         ]
 
-        if campos_faltantes:
+        if faltantes:
             raise RuntimeError(
                 "Campos ausentes no personas.csv: "
-                + ", ".join(campos_faltantes)
+                + ", ".join(faltantes)
             )
 
         personas = []
 
-        for numero_linha, linha in enumerate(
-            leitor,
-            start=2
-        ):
+        for numero_linha, linha in enumerate(leitor, start=2):
             registro = {
-                campo: (
-                    linha.get(campo) or ""
-                ).strip()
-                for campo in campos_obrigatorios
+                campo: (linha.get(campo) or "").strip()
+                for campo in CAMPOS_OBRIGATORIOS
             }
 
-            # Ignora linhas completamente vazias.
             if not any(registro.values()):
                 continue
 
-            campos_vazios = [
+            vazios = [
                 campo
                 for campo, valor in registro.items()
                 if not valor
             ]
 
-            if campos_vazios:
+            if vazios:
                 raise RuntimeError(
-                    f"Linha {numero_linha} do personas.csv "
-                    f"possui campos vazios: "
-                    + ", ".join(campos_vazios)
+                    f"Linha {numero_linha} possui campos vazios: "
+                    + ", ".join(vazios)
                 )
 
             personas.append(registro)
@@ -138,498 +100,497 @@ def carregar_personas(caminho):
     return personas
 
 
-# =========================
-# CONSTRUÇÃO DO PROMPT
-# =========================
+# ============================================================
+# MENU
+# ============================================================
 
-def montar_prompt(persona, estrategia):
-    nome = persona["Nome"]
-    idade = persona["Idade"]
-    estagio = persona["Estagio"]
-    sintoma = persona["Sintoma"]
-    cenario = persona["Cenario"]
-    gatilho = persona["Gatilho"]
-    contexto_objetivo = persona["ContextoObjetivo"]
+def escolher_persona(personas):
+    """Permite escolher uma persona sem repetir seus dois cenários."""
+    grupos = {}
 
-    if estrategia == "CONFRONTO":
-        instrucao = (
-             "A resposta do familiar deve utilizar uma estratégia de confronto. "
-             "Responda de forma direta à fala ou percepção apresentada pela persona, "
-             "corrigindo a informação quando houver um fato objetivo disponível. "
-             "Mantenha um tom respeitoso, sem acolher ou validar previamente a percepção apresentada."
+    for persona in personas:
+        grupos.setdefault(persona["Nome"], persona)
+
+    nomes = list(grupos.keys())
+
+    print("\n" + "=" * 60)
+    print("PERSONAS DISPONÍVEIS")
+    print("=" * 60)
+
+    for indice, nome in enumerate(nomes, start=1):
+        persona = grupos[nome]
+        print(
+            f"{indice}. {nome} "
+            f"({persona['Estagio']})"
         )
 
-    elif estrategia == "VALIDAÇÃO":
-        instrucao = (
-             "A resposta do familiar deve utilizar uma estratégia de validação. "
-             "Acolha a fala, a dificuldade ou a emoção apresentada pela persona, "
-             "sem confirmar como verdadeiro um fato que seja contradito pelo "
-             "contexto objetivo do cenário. Em seguida, redirecione a situação "
-             "de maneira calma."
-    )
-    else:
-        raise ValueError(
-            f"Estratégia inválida: {estrategia}"
-        )
+    while True:
+        escolha = input("\nEscolha a persona: ").strip()
 
-    return f"""
-Você participa de uma ferramenta educacional destinada a familiares de pessoas com Doença de Alzheimer. A ferramenta simula situações de cuidado para comparar diferentes estratégias de comunicação.
+        try:
+            indice = int(escolha)
 
-Dados da persona:
+            if 1 <= indice <= len(nomes):
+                nome_escolhido = nomes[indice - 1]
 
-Nome: {nome}
-Idade: {idade}
-Estágio da doença: {estagio}
-Sintoma principal: {sintoma}
-Cenário simulado: {cenario}
-Fala inicial da persona: {gatilho}
-Contexto objetivo do cenário: {contexto_objetivo}
+                return [
+                    persona
+                    for persona in personas
+                    if persona["Nome"] == nome_escolhido
+                ]
 
-Estratégia de comunicação: {estrategia}
+        except ValueError:
+            pass
 
-{instrucao}
-
-Sua tarefa possui duas partes:
-
-1. Gere uma fala curta que o familiar poderia dizer à persona utilizando a estratégia de comunicação indicada.
-
-2. Em seguida, simule uma reação plausível da persona ao ouvir a fala do familiar.
-
-Para gerar a reação da persona:
-
-- considere o estágio da doença, o sintoma e o cenário apresentados;
-
-- considere o conteúdo da resposta recebida;
-
-- não determine previamente que a reação será positiva ou negativa;
-
-- não force a persona a ficar calma, irritada, ansiosa ou satisfeita;
-
-- produza uma reação coerente com a situação apresentada.
-
-Regras:
-
-- Responda sempre em português do Brasil.
-
-- A resposta do familiar deve conter no máximo duas frases.
-
-- A reação da persona deve conter no máximo duas frases.
-
-- Não explique a estratégia utilizada.
-
-- Não acrescente análises ou justificativas.
-
-- Não descreva ações entre parênteses.
-
-- Não invente informações pessoais que não estejam presentes nos dados da persona.
-
-- Não crie datas, nomes de familiares, locais, acontecimentos ou lembranças que não tenham sido fornecidos.
-
-- Quando uma informação não estiver disponível, responda sem completar o dado por conta própria.
-
-- Não afirme como verdadeiro nenhum fato que não esteja explicitamente presente nos dados da persona ou do cenário. Quando uma informação não for fornecida, não complete, suponha ou invente essa informação.
-
-- Não utilize insultos, ameaças, ironia ou linguagem coercitiva.
-
-- Na estratégia de validação, não confirme como verdadeiro um fato que o contexto objetivo indique ser incorreto.
-
-- Quando a informação solicitada pela persona não estiver disponível no contexto, não invente uma justificativa para sua ausência e não atribua ao familiar desconhecimento, esquecimento ou qualquer outra condição não informada.
-
-Utilize obrigatoriamente o seguinte formato:
-
-RESPOSTA_FAMILIAR:
-[fala do familiar]
-
-REACAO_PERSONA:
-[reação da persona]
-""".strip()
+        print("Escolha inválida.")
 
 
-# =========================
-# TRATAMENTO DA RESPOSTA
-# =========================
+def escolher_cenario(personas_da_persona):
+    """Permite escolher um dos cenários associados à persona."""
+    nome = personas_da_persona[0]["Nome"]
 
-def extrair_interacao(texto):
-    if not texto:
-        raise RuntimeError(
-            "O modelo não retornou uma resposta textual."
-        )
+    print("\n" + "=" * 60)
+    print(f"CENÁRIOS DE {nome.upper()}")
+    print("=" * 60)
 
-    texto = texto.strip()
-
-    marcador_resposta = "RESPOSTA_FAMILIAR:"
-    marcador_reacao = "REACAO_PERSONA:"
-
-    if (
-        marcador_resposta not in texto
-        or marcador_reacao not in texto
+    for indice, persona in enumerate(
+        personas_da_persona,
+        start=1,
     ):
-        raise RuntimeError(
-            "A resposta do modelo não seguiu o formato esperado."
+        print(f"{indice}. {persona['Cenario']}")
+        print(f"   Sintoma: {persona['Sintoma']}")
+
+    while True:
+        escolha = input("\nEscolha o cenário: ").strip()
+
+        try:
+            indice = int(escolha)
+
+            if 1 <= indice <= len(personas_da_persona):
+                return personas_da_persona[indice - 1]
+
+        except ValueError:
+            pass
+
+        print("Escolha inválida.")
+
+
+def escolher_estrategia():
+    """Permite escolher a estratégia experimental."""
+    print("\n" + "=" * 60)
+    print("ESTRATÉGIA DE COMUNICAÇÃO")
+    print("=" * 60)
+    print("1. CONFRONTO")
+    print("2. VALIDAÇÃO")
+
+    while True:
+        escolha = input("\nEscolha a estratégia: ").strip()
+
+        if escolha == "1":
+            return "CONFRONTO"
+
+        if escolha == "2":
+            return "VALIDAÇÃO"
+
+        print("Escolha inválida.")
+
+
+# ============================================================
+# ESTADO
+# ============================================================
+
+def criar_estado(persona):
+    """Cria o estado inicial da conversa."""
+    return {
+        "rodada": 0,
+        "situacao_atual": persona["Situacao"],
+        "mudanca": "Início da interação.",
+        "ultima_fala_familiar": "",
+        "ultima_reacao_persona": "",
+    }
+
+
+def interpretar_estado(resposta, estado_anterior):
+    """Extrai SITUACAO e MUDANCA da terceira resposta da LLM."""
+    situacao_atual = estado_anterior["situacao_atual"]
+    mudanca = "Nenhuma mudança relevante."
+
+    texto = resposta.strip()
+    texto_upper = texto.upper()
+
+    pos_situacao = texto_upper.find("SITUACAO:")
+    pos_mudanca = texto_upper.find("MUDANCA:")
+
+    if pos_situacao >= 0:
+        inicio = pos_situacao + len("SITUACAO:")
+        fim = (
+            pos_mudanca
+            if pos_mudanca > inicio
+            else len(texto)
         )
+        valor = texto[inicio:fim].strip(" -|")
+        if valor:
+            situacao_atual = valor
 
-    conteudo = texto.split(
-        marcador_resposta,
-        1
-    )[1]
+    if pos_mudanca >= 0:
+        valor = texto[
+            pos_mudanca + len("MUDANCA:")
+        :].strip(" -|")
 
-    resposta_familiar, reacao_persona = conteudo.split(
-        marcador_reacao,
-        1
-    )
+        if valor:
+            mudanca = valor
 
-    resposta_familiar = resposta_familiar.strip()
-    reacao_persona = reacao_persona.strip()
-
-    resposta_familiar = " ".join(
-        resposta_familiar.split()
-    )
-
-    reacao_persona = " ".join(
-        reacao_persona.split()
-    )
-
-    return resposta_familiar, reacao_persona
+    return situacao_atual, mudanca
 
 
-# =========================
-# CHAMADA À LLM
-# =========================
+# ============================================================
+# TRÊS REQUISIÇÕES DE CADA RODADA
+# ============================================================
 
-def gerar_resposta_llm(persona, estrategia):
-    prompt = montar_prompt(
+def gerar_fala_familiar(
+    persona,
+    estrategia,
+    historico,
+    estado,
+):
+    """Requisição 1/3: resposta sugerida ao familiar."""
+    prompt = montar_prompt_familiar(
         persona,
-        estrategia
+        estrategia,
+        historico,
+        estado,
     )
 
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_ID,
-            messages=[
+    return chamar_llm(
+        prompt,
+        (
+            "Você representa o familiar da persona durante uma simulação "
+            f"educacional. O vínculo familiar é: {persona['Familiar']}. "
+            "Gere somente a fala desse familiar e siga rigorosamente "
+            "a estratégia de comunicação informada."
+        ),
+    )
+
+
+def gerar_reacao_persona(
+    persona,
+    fala_familiar,
+    historico,
+    estado,
+):
+    """Requisição 2/3: reação simulada da persona."""
+    prompt = montar_prompt_persona(
+        persona,
+        fala_familiar,
+        historico,
+        estado,
+    )
+
+    return chamar_llm(
+        prompt,
+        (
+            "Você representa somente a persona sintética. Gere "
+            "apenas a reação da persona e não explique o processo."
+        ),
+    )
+
+
+def atualizar_estado(
+    persona,
+    historico,
+    estado,
+    fala_familiar,
+    reacao_persona,
+):
+    """Requisição 3/3: situação atual e mudança observada."""
+    prompt = montar_prompt_estado(
+        persona=persona,
+        historico=historico,
+        estado=estado,
+        fala_familiar=fala_familiar,
+        reacao_persona=reacao_persona,
+    )
+
+    resposta = chamar_llm(
+        prompt,
+        (
+            "Você atualiza o estado de uma simulação educacional. "
+            "Retorne somente SITUACAO e MUDANCA."
+        ),
+    )
+
+    situacao_atual, mudanca = interpretar_estado(
+        resposta,
+        estado,
+    )
+
+    return {
+        "rodada": estado["rodada"] + 1,
+        "situacao_atual": situacao_atual,
+        "mudanca": mudanca,
+        "ultima_fala_familiar": fala_familiar,
+        "ultima_reacao_persona": reacao_persona,
+    }
+
+
+# ============================================================
+# LOG
+# ============================================================
+
+def registrar_inicio_simulacao(
+    arquivo,
+    simulacao_id,
+    persona,
+    estrategia,
+):
+    """Registra os metadados e o perfil fixo da execução."""
+    arquivo.write("=" * 72 + "\n")
+    arquivo.write(f"SIMULAÇÃO: {simulacao_id}\n")
+    arquivo.write(
+        "Data: "
+        + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        + "\n"
+    )
+    arquivo.write(f"Modelo: {MODEL_ID}\n")
+    arquivo.write(f"Temperature: {TEMPERATURE}\n")
+    arquivo.write(f"Max tokens: {MAX_TOKENS}\n")
+    arquivo.write(f"Máximo de rodadas: {MAX_RODADAS}\n")
+    arquivo.write(
+        f"Requisições ao modelo por rodada: "
+        f"{REQUISICOES_POR_RODADA}\n"
+    )
+    arquivo.write(f"Persona: {persona['Nome']}\n")
+    arquivo.write(f"Idade: {persona['Idade']}\n")
+    arquivo.write(f"Profissão: {persona['Profissao']}\n")
+    arquivo.write(
+        f"Estado civil: {persona['EstadoCivil']}\n"
+    )
+    arquivo.write(f"Filhos: {persona['Filhos']}\n")
+    arquivo.write(f"Familiar responsável: {persona['Familiar']}\n")
+    arquivo.write(
+        "Características pessoais: "
+        f"{persona['CaracteristicasPessoais']}\n"
+    )
+    arquivo.write(f"Estágio: {persona['Estagio']}\n")
+    arquivo.write(f"Sintoma: {persona['Sintoma']}\n")
+    arquivo.write(f"Cenário: {persona['Cenario']}\n")
+    arquivo.write(f"Estratégia: {estrategia}\n")
+    arquivo.write(f"Situação: {persona['Situacao']}\n")
+    arquivo.write(
+        f"Contexto objetivo: "
+        f"{persona['ContextoObjetivo']}\n\n"
+    )
+
+
+def registrar_interacao(
+    arquivo,
+    persona,
+    estado,
+    fala_familiar,
+    reacao_persona,
+):
+    """Registra uma rodada de forma padronizada."""
+    arquivo.write("-" * 72 + "\n")
+    arquivo.write(f"RODADA {estado['rodada']}\n\n")
+    arquivo.write(
+        f"[1/3] RESPOSTA DO FAMILIAR ({persona['Familiar']})\n"
+        f"{fala_familiar}\n\n"
+    )
+    arquivo.write(
+        f"[2/3] REAÇÃO DA PERSONA\n"
+        f"{reacao_persona}\n\n"
+    )
+    arquivo.write(
+        f"[3/3] ATUALIZAÇÃO DO ESTADO\n"
+        f"Situação atual: {estado['situacao_atual']}\n"
+        f"Mudança: {estado['mudanca']}\n"
+    )
+
+
+# ============================================================
+# EXECUÇÃO
+# ============================================================
+
+def exibir_resumo_persona(persona, estrategia):
+    """Mostra no terminal as informações fixas da simulação."""
+    print("\n" + "=" * 60)
+    print("SIMULAÇÃO INICIADA")
+    print("=" * 60)
+    print(f"Persona: {persona['Nome']}")
+    print(f"Idade: {persona['Idade']}")
+    print(f"Profissão: {persona['Profissao']}")
+    print(f"Estado civil: {persona['EstadoCivil']}")
+    print(f"Filhos: {persona['Filhos']}")
+    print(f"Familiar: {persona['Familiar']}")
+    print(
+        "Características pessoais: "
+        f"{persona['CaracteristicasPessoais']}"
+    )
+    print(f"Estágio: {persona['Estagio']}")
+    print(f"Sintoma: {persona['Sintoma']}")
+    print(f"Cenário: {persona['Cenario']}")
+    print(f"Estratégia: {estrategia}")
+    print(f"\nSituação: {persona['Situacao']}")
+    print(
+        f"\nCada rodada possui "
+        f"{REQUISICOES_POR_RODADA} requisições sequenciais."
+    )
+    print(
+        f"A simulação terá no máximo "
+        f"{MAX_RODADAS} rodadas."
+    )
+
+
+def executar_simulacao(
+    persona,
+    estrategia,
+    simulacao_id,
+):
+    """Executa uma simulação completa de até cinco rodadas."""
+    historico = []
+    estado = criar_estado(persona)
+
+    exibir_resumo_persona(persona, estrategia)
+
+    with open(
+        ARQUIVO_LOG,
+        "a",
+        encoding="utf-8",
+    ) as arquivo_log:
+
+        registrar_inicio_simulacao(
+            arquivo=arquivo_log,
+            simulacao_id=simulacao_id,
+            persona=persona,
+            estrategia=estrategia,
+        )
+
+        for numero_rodada in range(
+            1,
+            MAX_RODADAS + 1,
+        ):
+            print(
+                "\n"
+                + "=" * 60
+                + f"\nRODADA {numero_rodada}\n"
+                + "=" * 60
+            )
+
+            print("[1/3] ")
+            fala_familiar = gerar_fala_familiar(
+                persona=persona,
+                estrategia=estrategia,
+                historico=historico,
+                estado=estado,
+            )
+            print(f"{persona['Familiar']}: {fala_familiar}")
+
+            print("\n[2/3]")
+            reacao_persona = gerar_reacao_persona(
+                persona=persona,
+                fala_familiar=fala_familiar,
+                historico=historico,
+                estado=estado,
+            )
+            print(
+                f"{persona['Nome']}: "
+                f"{reacao_persona}"
+            )
+
+            print("\n[3/3]")
+            novo_estado = atualizar_estado(
+                persona=persona,
+                historico=historico,
+                estado=estado,
+                fala_familiar=fala_familiar,
+                reacao_persona=reacao_persona,
+            )
+
+            historico.append(
                 {
-                    "role": "system",
-                    "content": (
-                        "Você participa de uma simulação educacional "
-                        "sobre estratégias de comunicação relacionadas "
-                        "à Doença de Alzheimer. Gere a resposta do familiar "
-                        "e uma reação plausível da persona sem determinar "
-                        "previamente o resultado emocional da interação. "
-                        "Siga rigorosamente o formato solicitado."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": prompt
+                    "rodada": novo_estado["rodada"],
+                    "fala_familiar": fala_familiar,
+                    "reacao_persona": reacao_persona,
                 }
-            ],
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE
+            )
+
+            estado = novo_estado
+
+            print(
+                f"Situação atual: "
+                f"{estado['situacao_atual']}"
+            )
+            print(
+                f"Mudança: "
+                f"{estado['mudanca']}"
+            )
+
+            registrar_interacao(
+                arquivo=arquivo_log,
+                persona=persona,
+                estado=estado,
+                fala_familiar=fala_familiar,
+                reacao_persona=reacao_persona,
+            )
+
+        arquivo_log.write("-" * 72 + "\n")
+        arquivo_log.write(
+            f"FIM DA SIMULAÇÃO {simulacao_id}\n"
+        )
+        arquivo_log.write(
+            f"Total de rodadas: "
+            f"{estado['rodada']}\n"
+        )
+        arquivo_log.write(
+            f"Total máximo de requisições ao modelo: "
+            f"{estado['rodada'] * REQUISICOES_POR_RODADA}\n\n"
         )
 
-        conteudo = (
-            response
-            .choices[0]
-            .message
-            .content
-        )
-
-        return extrair_interacao(
-            conteudo
-        )
-
-    except Exception as erro:
-        raise RuntimeError(
-            f"Falha ao gerar interação para "
-            f"{persona['Nome']} — "
-            f"{persona['Cenario']} — "
-            f"{estrategia}: {erro}"
-        ) from erro
+    print("\n" + "=" * 60)
+    print("SIMULAÇÃO FINALIZADA")
+    print("=" * 60)
+    print(f"Total de rodadas: {estado['rodada']}")
+    print(
+        "Total de requisições ao modelo: "
+        f"{estado['rodada'] * REQUISICOES_POR_RODADA}"
+    )
 
 
-# =========================
-# EXECUÇÃO DAS SIMULAÇÕES
-# =========================
-
-def registrar_simulacao():
+def main():
     personas = carregar_personas(
         ARQUIVO_PERSONAS
     )
 
-    if MODO_PILOTO:
-        personas = [
-            persona
-            for persona in personas
-            if persona["Nome"] == "Maria"
-        ]
-
-        if not personas:
-            raise RuntimeError(
-                "A persona Maria não foi encontrada no arquivo personas.csv."
-            )
-
-    total_chamadas = (
-        len(personas)
-        * len(ESTRATEGIAS)
+    personas_da_persona = escolher_persona(
+        personas
     )
 
-    if MODO_PILOTO:
-        print(
-            f"MODO PILOTO: serão realizadas "
-            f"{total_chamadas} chamadas à API."
-        )
-
-    else:
-        print(
-            f"MODO COMPLETO: serão realizadas "
-            f"{total_chamadas} chamadas à API."
-        )
-
-    linhas_log = [
-        "REGISTRO DAS SIMULAÇÕES",
-        (
-            "Data de execução: "
-            f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-        ),
-        f"Modelo de linguagem: {MODEL_ID}",
-        "Plataforma de acesso: OpenRouter",
-        f"Temperature: {TEMPERATURE}",
-        f"Max tokens: {MAX_TOKENS}",
-        f"Quantidade de cenários: {len(personas)}",
-        (
-            "Estratégias avaliadas: "
-            + ", ".join(ESTRATEGIAS)
-        ),
-        (
-            "Ferramenta educacional para "
-            "orientação de familiares"
-        ),
-        "=" * 60,
-        ""
-    ]
-
-    respostas_geradas = {}
-
-    for persona in personas:
-        nome = persona["Nome"]
-        idade = persona["Idade"]
-        estagio = persona["Estagio"]
-        sintoma = persona["Sintoma"]
-        cenario = persona["Cenario"]
-        gatilho = persona["Gatilho"]
-        contexto_objetivo = (
-            persona["ContextoObjetivo"]
-        )
-
-        linhas_log.extend([
-            f"Persona: {nome}",
-            f"Idade: {idade}",
-            f"Estágio: {estagio}",
-            f"Sintoma: {sintoma}",
-            f"Cenário: {cenario}",
-            "",
-            f"Fala inicial da persona: {gatilho}",
-            (
-                "Contexto objetivo: "
-                f"{contexto_objetivo}"
-            ),
-            ""
-        ])
-
-        for estrategia in ESTRATEGIAS:
-            print(
-                f"Gerando: {nome} — "
-                f"{sintoma} — "
-                f"{estrategia}"
-            )
-
-            resposta_familiar, reacao_persona = (
-                gerar_resposta_llm(
-                    persona,
-                    estrategia
-                )
-            )
-
-            respostas_geradas[
-                (
-                    nome,
-                    cenario,
-                    estrategia
-                )
-            ] = {
-                "resposta_familiar": resposta_familiar,
-                "reacao_persona": reacao_persona
-            }
-
-            linhas_log.append(
-                f"[ESTRATÉGIA: {estrategia}]"
-            )
-
-            linhas_log.append(
-                "Resposta sugerida ao familiar: "
-                f"{resposta_familiar}"
-            )
-
-            linhas_log.append(
-                "Reação simulada da persona: "
-                f"{reacao_persona}"
-            )
-
-            linhas_log.append("")
-
-        linhas_log.append(
-            "-" * 60
-        )
-
-        linhas_log.append("")
-
-    # =========================
-    # LOG COMPLETO
-    # =========================
-
-    with open(
-        ARQUIVO_LOG,
-        "w",
-        encoding="utf-8"
-    ) as arquivo:
-        arquivo.write(
-            "\n".join(linhas_log)
-        )
-
-    # =========================
-    # ARQUIVO REDUZIDO PARA FIGURA
-    # =========================
-
-    persona_figura = next(
-        (
-            persona
-            for persona in personas
-            if (
-                persona["Nome"] == "Maria"
-                and persona["Sintoma"] == "Paranoia leve"
-            )
-        ),
-        None
+    persona = escolher_cenario(
+        personas_da_persona
     )
 
-    figura_gerada = False
+    estrategia = escolher_estrategia()
 
-    if persona_figura is not None:
-        nome_figura = persona_figura["Nome"]
-        cenario_figura = persona_figura["Cenario"]
-
-        chave_confronto = (
-            nome_figura,
-            cenario_figura,
-            "CONFRONTO"
-        )
-
-        chave_validacao = (
-            nome_figura,
-            cenario_figura,
-            "VALIDAÇÃO"
-        )
-
-        if (
-            chave_confronto in respostas_geradas
-            and chave_validacao in respostas_geradas
-        ):
-            exemplo = [
-                "EXEMPLO DE REGISTRO DA SIMULAÇÃO",
-                f"Modelo de linguagem: {MODEL_ID}",
-                "Plataforma de acesso: OpenRouter",
-                f"Temperature: {TEMPERATURE}",
-                f"Max tokens: {MAX_TOKENS}",
-                (
-                    "Ferramenta educacional para "
-                    "orientação de familiares"
-                ),
-                "=" * 60,
-                "",
-                (
-                    "Persona: "
-                    f"{persona_figura['Nome']}"
-                ),
-                (
-                    "Idade: "
-                    f"{persona_figura['Idade']}"
-                ),
-                (
-                    "Estágio: "
-                    f"{persona_figura['Estagio']}"
-                ),
-                (
-                    "Sintoma: "
-                    f"{persona_figura['Sintoma']}"
-                ),
-                (
-                    "Cenário: "
-                    f"{persona_figura['Cenario']}"
-                ),
-                "",
-                (
-                    "Fala inicial da persona: "
-                    f"{persona_figura['Gatilho']}"
-                ),
-                "",
-                "[ESTRATÉGIA: CONFRONTO]",
-                (
-                    "Resposta sugerida ao familiar: "
-                    + respostas_geradas[
-                        chave_confronto
-                    ]["resposta_familiar"]
-                ),
-                (
-                    "Reação simulada da persona: "
-                    + respostas_geradas[
-                        chave_confronto
-                    ]["reacao_persona"]
-                ),
-                "",
-                "[ESTRATÉGIA: VALIDAÇÃO]",
-                (
-                    "Resposta sugerida ao familiar: "
-                    + respostas_geradas[
-                        chave_validacao
-                    ]["resposta_familiar"]
-                ),
-                (
-                    "Reação simulada da persona: "
-                    + respostas_geradas[
-                        chave_validacao
-                    ]["reacao_persona"]
-                ),
-                ""
-            ]
-
-            with open(
-                ARQUIVO_FIGURA,
-                "w",
-                encoding="utf-8"
-            ) as arquivo:
-                arquivo.write(
-                    "\n".join(exemplo)
-                )
-
-            figura_gerada = True
-
-    print("")
-    print("Simulação concluída.")
-    print(
-        f"Arquivo completo gerado: {ARQUIVO_LOG}"
+    simulacao_id = (
+        datetime.now().strftime("%Y%m%d_%H%M%S")
+        + "_"
+        + uuid.uuid4().hex[:6]
     )
 
-    if figura_gerada:
-        print(
-            f"Arquivo para figura gerado: "
-            f"{ARQUIVO_FIGURA}"
+    try:
+        executar_simulacao(
+            persona=persona,
+            estrategia=estrategia,
+            simulacao_id=simulacao_id,
         )
-    else:
-        print(
-            "Arquivo para figura não foi gerado, "
-            "pois o cenário Maria / Paranoia leve "
-            "não foi encontrado."
-        )
+
+    except KeyboardInterrupt:
+        print("\n\nSimulação encerrada pelo usuário.")
+
+    except Exception as erro:
+        print("\n\nERRO:")
+        print(erro)
 
 
 if __name__ == "__main__":
-    registrar_simulacao()
+    main()
