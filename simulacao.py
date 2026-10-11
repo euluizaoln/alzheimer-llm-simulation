@@ -10,6 +10,9 @@ from prompts import (
     montar_prompt_estado,
     montar_prompt_familiar,
     montar_prompt_persona,
+    montar_prompt_persona_primeiro,
+    montar_prompt_familiar_apos_persona,
+    montar_prompt_estado_persona_primeiro,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -243,9 +246,96 @@ def interpretar_estado(resposta, estado_anterior):
     return situacao_atual, mudanca
 
 
+def persona_inicia_rodada(persona):
+    """Define cenários em que a persona apresenta o problema antes do familiar."""
+    cenario = persona["Cenario"].strip().lower()
+    return (
+        persona["Nome"].strip().upper() == "MARIA"
+        and ("bolsa" in cenario or "ateli" in cenario)
+    )
+
+
 # ============================================================
 # TRÊS REQUISIÇÕES DE CADA RODADA
 # ============================================================
+
+def gerar_fala_persona_primeiro(
+    persona,
+    estrategia,
+    historico,
+    estado,
+):
+    """Requisição 1/3 quando a persona inicia a rodada."""
+    prompt = montar_prompt_persona_primeiro(
+        persona,
+        estrategia,
+        historico,
+        estado,
+    )
+    return chamar_llm(
+        prompt,
+        (
+            "Você representa somente a persona sintética. "
+            "Gere apenas a fala da persona que inicia a rodada."
+        ),
+    )
+
+
+def gerar_fala_familiar_apos_persona(
+    persona,
+    estrategia,
+    fala_persona,
+    historico,
+    estado,
+):
+    """Requisição 2/3 quando o familiar responde à persona."""
+    prompt = montar_prompt_familiar_apos_persona(
+        persona,
+        estrategia,
+        fala_persona,
+        historico,
+        estado,
+    )
+    return chamar_llm(
+        prompt,
+        (
+            "Você representa somente o familiar da persona. "
+            "Responda diretamente à fala atual da persona."
+        ),
+    )
+
+
+def atualizar_estado_persona_primeiro(
+    persona,
+    historico,
+    estado,
+    fala_persona,
+    fala_familiar,
+):
+    """Requisição 3/3 quando a persona falou primeiro."""
+    prompt = montar_prompt_estado_persona_primeiro(
+        persona,
+        historico,
+        estado,
+        fala_persona,
+        fala_familiar,
+    )
+    resposta = chamar_llm(
+        prompt,
+        (
+            "Você atualiza o estado de uma simulação educacional. "
+            "Retorne somente SITUACAO e MUDANCA."
+        ),
+    )
+    situacao_atual, mudanca = interpretar_estado(resposta, estado)
+    return {
+        "rodada": estado["rodada"] + 1,
+        "situacao_atual": situacao_atual,
+        "mudanca": mudanca,
+        "ultima_fala_familiar": fala_familiar,
+        "ultima_reacao_persona": fala_persona,
+    }
+
 
 def gerar_fala_familiar(
     persona,
@@ -274,6 +364,7 @@ def gerar_fala_familiar(
 
 def gerar_reacao_persona(
     persona,
+    estrategia,
     fala_familiar,
     historico,
     estado,
@@ -281,6 +372,7 @@ def gerar_reacao_persona(
     """Requisição 2/3: reação simulada da persona."""
     prompt = montar_prompt_persona(
         persona,
+        estrategia,
         fala_familiar,
         historico,
         estado,
@@ -388,18 +480,31 @@ def registrar_interacao(
     estado,
     fala_familiar,
     reacao_persona,
+    persona_primeiro=False,
 ):
-    """Registra uma rodada de forma padronizada."""
+    """Registra uma rodada respeitando a ordem real dos participantes."""
     arquivo.write("-" * 72 + "\n")
     arquivo.write(f"RODADA {estado['rodada']}\n\n")
-    arquivo.write(
-        f"[1/3] RESPOSTA DO FAMILIAR ({persona['Familiar']})\n"
-        f"{fala_familiar}\n\n"
-    )
-    arquivo.write(
-        f"[2/3] REAÇÃO DA PERSONA\n"
-        f"{reacao_persona}\n\n"
-    )
+
+    if persona_primeiro:
+        arquivo.write(
+            f"[1/3] FALA DA PERSONA ({persona['Nome']})\n"
+            f"{reacao_persona}\n\n"
+        )
+        arquivo.write(
+            f"[2/3] RESPOSTA DO FAMILIAR ({persona['Familiar']})\n"
+            f"{fala_familiar}\n\n"
+        )
+    else:
+        arquivo.write(
+            f"[1/3] RESPOSTA DO FAMILIAR ({persona['Familiar']})\n"
+            f"{fala_familiar}\n\n"
+        )
+        arquivo.write(
+            f"[2/3] REAÇÃO DA PERSONA\n"
+            f"{reacao_persona}\n\n"
+        )
+
     arquivo.write(
         f"[3/3] ATUALIZAÇÃO DO ESTADO\n"
         f"Situação atual: {estado['situacao_atual']}\n"
@@ -436,7 +541,7 @@ def exibir_resumo_persona(persona, estrategia):
         f"{REQUISICOES_POR_RODADA} requisições sequenciais."
     )
     print(
-        f"A simulação terá no máximo "
+        f"A simulação terá "
         f"{MAX_RODADAS} rodadas."
     )
 
@@ -446,7 +551,7 @@ def executar_simulacao(
     estrategia,
     simulacao_id,
 ):
-    """Executa uma simulação completa de até cinco rodadas."""
+    """Executa uma simulação completa de cinco rodadas."""
     historico = []
     estado = criar_estado(persona)
 
@@ -476,41 +581,71 @@ def executar_simulacao(
                 + "=" * 60
             )
 
-            print("[1/3] ")
-            fala_familiar = gerar_fala_familiar(
-                persona=persona,
-                estrategia=estrategia,
-                historico=historico,
-                estado=estado,
-            )
-            print(f"{persona['Familiar']}: {fala_familiar}")
+            persona_primeiro = persona_inicia_rodada(persona)
 
-            print("\n[2/3]")
-            reacao_persona = gerar_reacao_persona(
-                persona=persona,
-                fala_familiar=fala_familiar,
-                historico=historico,
-                estado=estado,
-            )
-            print(
-                f"{persona['Nome']}: "
-                f"{reacao_persona}"
-            )
+            if persona_primeiro:
+                print("[1/3] ")
+                reacao_persona = gerar_fala_persona_primeiro(
+                    persona=persona,
+                    estrategia=estrategia,
+                    historico=historico,
+                    estado=estado,
+                )
+                print(f"{persona['Nome']}: {reacao_persona}")
 
-            print("\n[3/3]")
-            novo_estado = atualizar_estado(
-                persona=persona,
-                historico=historico,
-                estado=estado,
-                fala_familiar=fala_familiar,
-                reacao_persona=reacao_persona,
-            )
+                print("\n[2/3]")
+                fala_familiar = gerar_fala_familiar_apos_persona(
+                    persona=persona,
+                    estrategia=estrategia,
+                    fala_persona=reacao_persona,
+                    historico=historico,
+                    estado=estado,
+                )
+                print(f"{persona['Familiar']}: {fala_familiar}")
+
+                print("\n[3/3]")
+                novo_estado = atualizar_estado_persona_primeiro(
+                    persona=persona,
+                    historico=historico,
+                    estado=estado,
+                    fala_persona=reacao_persona,
+                    fala_familiar=fala_familiar,
+                )
+            else:
+                print("[1/3] ")
+                fala_familiar = gerar_fala_familiar(
+                    persona=persona,
+                    estrategia=estrategia,
+                    historico=historico,
+                    estado=estado,
+                )
+                print(f"{persona['Familiar']}: {fala_familiar}")
+
+                print("\n[2/3]")
+                reacao_persona = gerar_reacao_persona(
+                    persona=persona,
+                    estrategia=estrategia,
+                    fala_familiar=fala_familiar,
+                    historico=historico,
+                    estado=estado,
+                )
+                print(f"{persona['Nome']}: {reacao_persona}")
+
+                print("\n[3/3]")
+                novo_estado = atualizar_estado(
+                    persona=persona,
+                    historico=historico,
+                    estado=estado,
+                    fala_familiar=fala_familiar,
+                    reacao_persona=reacao_persona,
+                )
 
             historico.append(
                 {
                     "rodada": novo_estado["rodada"],
                     "fala_familiar": fala_familiar,
                     "reacao_persona": reacao_persona,
+                    "persona_primeiro": persona_primeiro,
                 }
             )
 
@@ -531,6 +666,7 @@ def executar_simulacao(
                 estado=estado,
                 fala_familiar=fala_familiar,
                 reacao_persona=reacao_persona,
+                persona_primeiro=persona_primeiro,
             )
 
         arquivo_log.write("-" * 72 + "\n")
