@@ -94,7 +94,7 @@ def instrucoes_especificas_joao(persona, estrategia):
 
     cenario = persona["Cenario"].strip().lower()
 
-    if "oficina" in cenario:
+    if "chave de roda" in cenario:
         if estrategia == "CONFRONTO":
             return """
 - Baseie a interação no exemplo fornecido pela profissional avaliadora para o estágio leve.
