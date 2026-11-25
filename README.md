@@ -14,12 +14,12 @@ O sistema utiliza três personas sintéticas, representando diferentes estágios
 
 Cada persona possui dois cenários, totalizando seis situações simuladas:
 
-1. João não consegue identificar a chave de roda;
-2. João esqueceu de comprar o medicamento;
-3. Maria guardou a bolsa na despensa e acredita que foi roubada;
-4. Maria quer ir para o ateliê onde trabalhou como costureira;
-5. Ana não reconhece a casa onde mora;
-6. Ana não reconhece o filho.
+1. Não consegue identificar a chave de roda;
+2. Esqueceu de comprar o medicamento;
+3. Guardou a bolsa na despensa e acredita que foi roubada;
+4. Quer ir para o ateliê onde trabalhou como costureira;
+5. Não reconhece a casa onde mora;
+6. Não reconhece o próprio filho.
 
 Cada cenário é executado com duas estratégias de comunicação:
 
@@ -90,3 +90,20 @@ Instale as dependências necessárias:
 
 ```bash
 pip install openai python-dotenv
+```
+
+## Configuração
+
+Crie um arquivo `.env` a partir do exemplo fornecido em `.env.example` e informe sua chave da API do OpenRouter:
+
+```env
+OPENROUTER_API_KEY=sua_chave_aqui
+```
+
+Em seguida, execute:
+
+```bash
+python simulacao.py
+```
+
+> O arquivo `logs_simulacoes_finais.txt` preserva as 12 simulações definitivas utilizadas na avaliação final. Alguns rótulos registrados nesse arquivo refletem a nomenclatura usada no momento das execuções, mas correspondem aos mesmos seis cenários apresentados acima.
